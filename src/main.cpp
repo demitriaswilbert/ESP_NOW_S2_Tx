@@ -34,6 +34,26 @@ bool getMacAddr(const char* str, uint8_t* buf_mac_addr) {
     return true;
 }
 
+String getMacString(const uint8_t* buf) {
+    String tmp;
+    const char symbols[] = "0123456789ABCDEF";
+    for (int i = 0; i < 6; i++) {
+        if (i > 0) tmp += ':';
+        tmp += symbols[(buf[i] >> 4U) & 0x0fU];
+        tmp += symbols[buf[i] & 0x0fU];
+    }
+    return tmp;
+}
+
+void setMacAddr(const char* addr, esp_now_peer_info_t* peerInfo) {
+    uint8_t tmp_addr[6];
+    bool success = getMacAddr(addr, tmp_addr);
+    if (!success) return;
+    esp_now_del_peer(peerInfo->peer_addr);
+    memcpy(peerInfo->peer_addr, tmp_addr, 6);
+    esp_now_add_peer(peerInfo);
+}
+
 static int sent_status = -1;
 
 void onDataSent(const uint8_t* mac, esp_now_send_status_t status) {
@@ -50,9 +70,21 @@ void onDataSent(const uint8_t* mac, esp_now_send_status_t status) {
 void onDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
     uint32_t flags;
     uint32_t pos;
+    static size_t recvLen = 0UL;
+
     memcpy(&flags, &data[0], sizeof(flags));
     memcpy(&pos, &data[4], sizeof(pos));
-    Serial.println("Received " + String(flags) + " " + String(pos));
+
+    if (flags & 1U) {
+        recvLen = 0UL;
+    }
+    recvLen += data_len - 8;
+
+    if (flags & 4U) {
+        Serial.println("Received " + String(recvLen) + " Bytes");
+    } else {
+        Serial.println("Received " + String(flags) + " " + String(pos));
+    }
 }
 
 esp_err_t esp_now_send_packet(const uint8_t* peer_addr, const uint8_t* data, size_t len, uint32_t timeout) {
@@ -110,14 +142,24 @@ void getInputTask(void* param) {
     while (true) {
         while (Serial.available()) {
             char c = Serial.read();
-            Serial.write(c);
 
             if (c == '\033') {
+                if (tmp.startsWith("SetMac ")) {
+                    setMacAddr(tmp.c_str() + 7, &peerInfo);
+                    Serial.println(getMacString(peerInfo.peer_addr));
+                    tmp.clear();
+                    continue;
+                }
                 while (txReady)
                     vTaskDelay(1);
                 txReady = true;
-            }
-            else tmp += c;
+            } else if (c == '\b' && !tmp.isEmpty()) {
+                tmp.remove(tmp.length() - 1);
+                Serial.write("\b \b");
+            } else {
+                tmp += c;
+                Serial.write(c);
+            } 
         }
         vTaskDelay(1);
     }
@@ -142,6 +184,7 @@ void setup() {
     esp_now_register_send_cb(onDataSent);
     esp_now_register_recv_cb(onDataRecv);
     getMacAddr(PEER_MAC_ADDR, peerInfo.peer_addr);
+    Serial.println(WiFi.macAddress());
     peerInfo.channel = 0U;
     peerInfo.encrypt = false;
 
@@ -167,12 +210,15 @@ void loop() {
         // Serial.println("\n\n");
         size_t transmitted = 0UL;
         int64_t txTime = esp_timer_get_time();
-        esp_err_t err = esp_now_send_blocking(peerInfo.peer_addr, (uint8_t*)tmp.c_str(), tmp.length(), &transmitted, 5000);
+        esp_err_t err = ESP_OK;
+        err = esp_now_send_blocking(peerInfo.peer_addr, (uint8_t*)tmp.c_str(), tmp.length(), &transmitted, 5000);
         txTime = esp_timer_get_time() - txTime;
         char buf[1000];
         esp_err_to_name_r(err, buf, 1000);
         tmp.clear();
         txReady = false;
+        while (!Serial.availableForWrite())
+            vTaskDelay(1);
         Serial.println(buf);
         Serial.println("Transmitted: " + String(transmitted));
         Serial.println("Speed: " + String((double)transmitted * 1000000.0 / txTime));
