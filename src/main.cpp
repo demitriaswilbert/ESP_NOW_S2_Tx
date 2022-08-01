@@ -3,7 +3,8 @@
 #include <esp_now.h>
 #include <esp_private/wifi.h>
 
-
+#define PMK_STRING "Never Gonna Give"
+#define LMK_STRING "You Up Never Gon"
 #define PEER_MAC_ADDR   "24:0A:C4:59:D3:7C"
 #define millisll() (esp_timer_get_time() / 1000ULL)
 
@@ -181,12 +182,15 @@ void setup() {
         vTaskDelay(1000);
     }
 
+    esp_now_set_pmk((const uint8_t*)PMK_STRING);
+    
     esp_now_register_send_cb(onDataSent);
     esp_now_register_recv_cb(onDataRecv);
     getMacAddr(PEER_MAC_ADDR, peerInfo.peer_addr);
     Serial.println(WiFi.macAddress());
     peerInfo.channel = 0U;
-    peerInfo.encrypt = false;
+    memcpy(peerInfo.lmk, LMK_STRING, 16);
+    peerInfo.encrypt = true;
 
     while (esp_now_add_peer(&peerInfo) != ESP_OK) {
         Serial.println("Failed to add peer");
