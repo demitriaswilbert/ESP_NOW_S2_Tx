@@ -150,6 +150,14 @@ void getInputTask(void* param) {
                     Serial.println(getMacString(peerInfo.peer_addr));
                     tmp.clear();
                     continue;
+                } else if (tmp.startsWith("Encr 0")) {
+                    esp_now_del_peer(peerInfo.peer_addr);
+                    peerInfo.encrypt = false;
+                    esp_now_add_peer(&peerInfo);
+                } else if (tmp.startsWith("Encr 1")) {
+                    esp_now_del_peer(peerInfo.peer_addr);
+                    peerInfo.encrypt = true;
+                    esp_now_add_peer(&peerInfo);
                 }
                 while (txReady)
                     vTaskDelay(1);
