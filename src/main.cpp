@@ -154,10 +154,16 @@ void getInputTask(void* param) {
                     esp_now_del_peer(peerInfo.peer_addr);
                     peerInfo.encrypt = false;
                     esp_now_add_peer(&peerInfo);
+                    Serial.println("Disabled Encryption");
+                    tmp.clear();
+                    continue;
                 } else if (tmp.startsWith("Encr 1")) {
                     esp_now_del_peer(peerInfo.peer_addr);
                     peerInfo.encrypt = true;
                     esp_now_add_peer(&peerInfo);
+                    Serial.println("Enabled Encryption");
+                    tmp.clear();
+                    continue;
                 }
                 while (txReady)
                     vTaskDelay(1);
