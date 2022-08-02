@@ -83,6 +83,7 @@ void onDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
 
     if (flags & 1U) {
         recv_str.clear();
+        Serial.println("Received Packet Start");
     }
     for (int i = 8; i < data_len; i++) {
         recv_str += (char) data[i];
@@ -91,8 +92,6 @@ void onDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
     if (flags & 4U) {
         Serial.println("Received " + String(recv_str.length()) + " Bytes");
         rxReady = true;
-    } else {
-        Serial.println("Received " + String(flags) + " " + String(pos));
     }
 }
 
@@ -255,14 +254,14 @@ void loop() {
         txTime = esp_timer_get_time() - txTime;
         send_str.clear();
 
-        char buf[1000];
-        esp_err_to_name_r(err, buf, 1000);
+        // char buf[1000];
+        // esp_err_to_name_r(err, buf, 1000);
         txReady = false;
 
         while (!Serial.availableForWrite())
             vTaskDelay(1);
 
-        Serial.println(buf);
+        // Serial.println(buf);
         Serial.println("Transmitted: " + String(transmitted));
         Serial.println("Speed: " + String((double)transmitted * 1000000.0 / txTime));
         vTaskDelay(1000);
