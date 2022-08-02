@@ -8,10 +8,11 @@
 #define PEER_MAC_ADDR   "24:0A:C4:59:D3:7C"
 #define millisll() (esp_timer_get_time() / 1000ULL)
 
-static String send_str = "";
-static bool txReady = false;
 static esp_now_peer_info_t peerInfo;
-static String recv_str = "";
+
+static String send_str = "", recv_str = "";
+static bool txReady = false, rxReady = false;
+
 
 bool getMacAddr(const char* str, uint8_t* buf_mac_addr) {
     uint8_t mac_addr_tmp[6] = {0}, mac_addr_filled = 0;
@@ -72,18 +73,24 @@ void onDataSent(const uint8_t* mac, esp_now_send_status_t status) {
 void onDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
     uint32_t flags;
     uint32_t pos;
-    static size_t recvLen = 0UL;
+
+    if (rxReady)
+        return;
 
     memcpy(&flags, &data[0], sizeof(flags));
     memcpy(&pos, &data[4], sizeof(pos));
 
+
     if (flags & 1U) {
-        recvLen = 0UL;
+        recv_str.clear();
     }
-    recvLen += data_len - 8;
+    for (int i = 8; i < data_len; i++) {
+        recv_str += (char) data[i];
+    }
 
     if (flags & 4U) {
-        Serial.println("Received " + String(recvLen) + " Bytes");
+        Serial.println("Received " + String(recv_str.length()) + " Bytes");
+        rxReady = true;
     } else {
         Serial.println("Received " + String(flags) + " " + String(pos));
     }
@@ -118,22 +125,29 @@ esp_err_t esp_now_send_blocking(
     
     size_t i = 0;
     int64_t resend_timeout = millisll();
+
     for(; i < len;) {
+
         int txLen = ((len - i) > 242)? 242 : (len - i);
+
         uint8_t packet[250] = {0};
-        *(uint32_t*)&packet[0] = ((i + txLen) == len);
-        *(uint32_t*)&packet[0] <<= 2U;
+
+        *(uint32_t*)&packet[0] = ((uint32_t)((i + txLen) == len)) << 2U;
         *(uint32_t*)&packet[0] |= (1U << (i > 0));
         *(uint32_t*)&packet[4] = (uint32_t)i + 1;
+
         memcpy(&packet[8], data + i, txLen);
+
         esp_err_t err = esp_now_send_packet(peer_addr, packet, txLen + 8, 1000UL);
+
         if (err != ESP_OK) {
             if (millisll() - resend_timeout < timeout) {
-                Serial.println("[ERROR] ESP-NOW Transmission Error, Resending Packet");
+                Serial.println(
+                    "[ERROR] ESP-NOW Transmission Error, Resending Packet");
                 continue;
-            }
-            else return ESP_ERR_TIMEOUT;
+            } else return ESP_ERR_TIMEOUT;
         }
+
         i += txLen;
         *transmitted = i;
     }
@@ -146,29 +160,38 @@ void getInputTask(void* param) {
             char c = Serial.read();
 
             if (c == '\033') {
+
                 if (send_str.startsWith("SetMac ")) {
                     setMacAddr(send_str.c_str() + 7, &peerInfo);
                     Serial.println(getMacString(peerInfo.peer_addr));
                     send_str.clear();
                     continue;
                 } else if (send_str.startsWith("Encr 0")) {
+
                     esp_now_del_peer(peerInfo.peer_addr);
                     peerInfo.encrypt = false;
                     esp_now_add_peer(&peerInfo);
+                    
                     Serial.println("Disabled Encryption");
                     send_str.clear();
                     continue;
+
                 } else if (send_str.startsWith("Encr 1")) {
+
                     esp_now_del_peer(peerInfo.peer_addr);
                     peerInfo.encrypt = true;
                     esp_now_add_peer(&peerInfo);
+
                     Serial.println("Enabled Encryption");
                     send_str.clear();
                     continue;
                 }
+
                 while (txReady)
                     vTaskDelay(1);
+
                 txReady = true;
+                
             } else if (c == '\b' && !send_str.isEmpty()) {
                 send_str.remove(send_str.length() - 1);
                 Serial.write("\b \b");
@@ -183,12 +206,14 @@ void getInputTask(void* param) {
 }
 
 void setup() {
+
     vTaskDelay(100);
     Serial.begin(115200);
+
     xTaskCreate(getInputTask, "uart input", 4096, NULL, 0, NULL);
     pinMode(19, INPUT_PULLUP);
+
     WiFi.mode(WIFI_MODE_STA);
-    Serial.println(WiFi.getTxPower());
     ESP_ERROR_CHECK(esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_11M_S));
 
     while (esp_now_init() != ESP_OK) {
@@ -201,6 +226,7 @@ void setup() {
     
     esp_now_register_send_cb(onDataSent);
     esp_now_register_recv_cb(onDataRecv);
+
     getMacAddr(PEER_MAC_ADDR, peerInfo.peer_addr);
     Serial.println(WiFi.macAddress());
     peerInfo.channel = 0U;
@@ -236,5 +262,10 @@ void loop() {
         Serial.println("Speed: " + String((double)transmitted * 1000000.0 / txTime));
         vTaskDelay(1000);
     }
+    if (rxReady) {
+        Serial.println(recv_str);
+        rxReady = false;
+    }
+    
     vTaskDelay(100);
 }
