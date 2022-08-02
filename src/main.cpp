@@ -41,9 +41,9 @@ String getMacString(const uint8_t* buf) {
     String tmp;
     const char symbols[] = "0123456789ABCDEF";
     for (int i = 0; i < 6; i++) {
-        if (i > 0) send_str += ':';
-        send_str += symbols[(buf[i] >> 4U) & 0x0fU];
-        send_str += symbols[buf[i] & 0x0fU];
+        if (i > 0) tmp += ':';
+        tmp += symbols[(buf[i] >> 4U) & 0x0fU];
+        tmp += symbols[buf[i] & 0x0fU];
     }
     return tmp;
 }
@@ -162,16 +162,20 @@ void getInputTask(void* param) {
             if (c == '\033') {
 
                 if (send_str.startsWith("SetMac ")) {
+
                     setMacAddr(send_str.c_str() + 7, &peerInfo);
-                    Serial.println(getMacString(peerInfo.peer_addr));
+                    Serial.println();
+                    Serial.println("Peer MAC: " + getMacString(peerInfo.peer_addr));
                     send_str.clear();
                     continue;
+
                 } else if (send_str.startsWith("Encr 0")) {
 
                     esp_now_del_peer(peerInfo.peer_addr);
                     peerInfo.encrypt = false;
                     esp_now_add_peer(&peerInfo);
                     
+                    Serial.println();
                     Serial.println("Disabled Encryption");
                     send_str.clear();
                     continue;
@@ -182,6 +186,7 @@ void getInputTask(void* param) {
                     peerInfo.encrypt = true;
                     esp_now_add_peer(&peerInfo);
 
+                    Serial.println();
                     Serial.println("Enabled Encryption");
                     send_str.clear();
                     continue;
@@ -266,6 +271,6 @@ void loop() {
         Serial.println(recv_str);
         rxReady = false;
     }
-    
+
     vTaskDelay(100);
 }
