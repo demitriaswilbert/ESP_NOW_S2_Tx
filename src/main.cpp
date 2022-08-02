@@ -8,9 +8,10 @@
 #define PEER_MAC_ADDR   "24:0A:C4:59:D3:7C"
 #define millisll() (esp_timer_get_time() / 1000ULL)
 
-static String tmp = "";
+static String send_str = "";
 static bool txReady = false;
 static esp_now_peer_info_t peerInfo;
+static String recv_str = "";
 
 bool getMacAddr(const char* str, uint8_t* buf_mac_addr) {
     uint8_t mac_addr_tmp[6] = {0}, mac_addr_filled = 0;
@@ -39,9 +40,9 @@ String getMacString(const uint8_t* buf) {
     String tmp;
     const char symbols[] = "0123456789ABCDEF";
     for (int i = 0; i < 6; i++) {
-        if (i > 0) tmp += ':';
-        tmp += symbols[(buf[i] >> 4U) & 0x0fU];
-        tmp += symbols[buf[i] & 0x0fU];
+        if (i > 0) send_str += ':';
+        send_str += symbols[(buf[i] >> 4U) & 0x0fU];
+        send_str += symbols[buf[i] & 0x0fU];
     }
     return tmp;
 }
@@ -145,34 +146,34 @@ void getInputTask(void* param) {
             char c = Serial.read();
 
             if (c == '\033') {
-                if (tmp.startsWith("SetMac ")) {
-                    setMacAddr(tmp.c_str() + 7, &peerInfo);
+                if (send_str.startsWith("SetMac ")) {
+                    setMacAddr(send_str.c_str() + 7, &peerInfo);
                     Serial.println(getMacString(peerInfo.peer_addr));
-                    tmp.clear();
+                    send_str.clear();
                     continue;
-                } else if (tmp.startsWith("Encr 0")) {
+                } else if (send_str.startsWith("Encr 0")) {
                     esp_now_del_peer(peerInfo.peer_addr);
                     peerInfo.encrypt = false;
                     esp_now_add_peer(&peerInfo);
                     Serial.println("Disabled Encryption");
-                    tmp.clear();
+                    send_str.clear();
                     continue;
-                } else if (tmp.startsWith("Encr 1")) {
+                } else if (send_str.startsWith("Encr 1")) {
                     esp_now_del_peer(peerInfo.peer_addr);
                     peerInfo.encrypt = true;
                     esp_now_add_peer(&peerInfo);
                     Serial.println("Enabled Encryption");
-                    tmp.clear();
+                    send_str.clear();
                     continue;
                 }
                 while (txReady)
                     vTaskDelay(1);
                 txReady = true;
-            } else if (c == '\b' && !tmp.isEmpty()) {
-                tmp.remove(tmp.length() - 1);
+            } else if (c == '\b' && !send_str.isEmpty()) {
+                send_str.remove(send_str.length() - 1);
                 Serial.write("\b \b");
             } else {
-                tmp += c;
+                send_str += c;
                 Serial.write(c);
             } 
         }
@@ -215,28 +216,21 @@ void setup() {
 
 void loop() {
     if (txReady) {
-        // Serial.println("\033[2H\033[2J");
-        // Serial.println("HeapSize : " + String(ESP.getHeapSize()));
-        // Serial.println("FreeHeap : " + String(ESP.getFreeHeap()));
-        // Serial.println("MinFreeHeap : " + String(ESP.getMinFreeHeap()));
-        // Serial.println("MaxAllocHeap : " + String(ESP.getMaxAllocHeap()));
-
-        // Serial.println("PsramSize : " + String(ESP.getPsramSize()));
-        // Serial.println("FreePsram : " + String(ESP.getFreePsram()));
-        // Serial.println("MinFreePsram : " + String(ESP.getMinFreePsram()));
-        // Serial.println("MaxAllocPsram : " + String(ESP.getMaxAllocPsram()));
-        // Serial.println("\n\n");
         size_t transmitted = 0UL;
-        int64_t txTime = esp_timer_get_time();
+
         esp_err_t err = ESP_OK;
-        err = esp_now_send_blocking(peerInfo.peer_addr, (uint8_t*)tmp.c_str(), tmp.length(), &transmitted, 5000);
+        int64_t txTime = esp_timer_get_time();
+        err = esp_now_send_blocking(peerInfo.peer_addr, (uint8_t*)send_str.c_str(), send_str.length(), &transmitted, 5000);
         txTime = esp_timer_get_time() - txTime;
+        send_str.clear();
+
         char buf[1000];
         esp_err_to_name_r(err, buf, 1000);
-        tmp.clear();
         txReady = false;
+
         while (!Serial.availableForWrite())
             vTaskDelay(1);
+
         Serial.println(buf);
         Serial.println("Transmitted: " + String(transmitted));
         Serial.println("Speed: " + String((double)transmitted * 1000000.0 / txTime));
